@@ -78,3 +78,17 @@ td { padding: 10px 8px; border-bottom: 1px solid #f3f4f6; }
 
 @media (max-width: 900px) { .charts, .two-col { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .brand h1 { font-size: 15px; } main { padding: 10px; } }
+/* Disabled phase chip — when no data exists for that phase yet */
+.chip.disabled,
+.chip:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.chip.disabled:hover {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+

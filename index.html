@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FTE Workload Dashboard — AIL</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">AIL</div>
+      <div>
+        <h1>FTE Workload Dashboard</h1>
+        <p>AROPEX · Akij Ispat Ltd — Live Google Sheets</p>
+      </div>
+    </div>
+    <div class="actions">
+      <span class="live">● Live</span>
+      <button id="refreshBtn">⟳ Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <p id="meta" class="meta">Loading…</p>
+
+    <section class="filters">
+      <div class="filter-row">
+        <label>SECTION</label>
+        <div id="sectionFilters" class="chips"></div>
+      </div>
+      <div class="filter-row">
+        <label>SHIFT</label>
+        <div id="shiftFilters" class="chips"></div>
+      </div>
+      <div class="filter-row">
+        <label>PHASE REMARKS</label>
+        <div id="phaseFilters" class="chips"></div>
+      </div>
+    </section>
+
+    <section id="kpiGrid" class="kpi-grid"></section>
+
+    <section class="charts">
+      <div class="card"><h3>FTE required vs headcount by section</h3><canvas id="chart1"></canvas></div>
+      <div class="card"><h3>Average workload % by section</h3><canvas id="chart2"></canvas></div>
+    </section>
+
+    <section class="two-col">
+      <div class="card">
+        <div class="card-head">
+          <h3>Role-level FTE</h3>
+          <span class="hint">FTE = Total task time ÷ shift minutes</span>
+        </div>
+        <input id="roleSearch" placeholder="Search role, section or phase…" />
+        <div id="roleTable" class="table"></div>
+      </div>
+      <div class="card alerts">
+        <h3>Capacity alerts <span class="hint">roles needing attention</span></h3>
+        <div id="alertsList"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>Employee workload</h3>
+        <span id="empMeta" class="hint"></span>
+      </div>
+      <input id="empSearch" placeholder="Search name, role, section or phase…" />
+      <div id="empTable" class="table"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

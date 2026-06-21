@@ -1,7 +1,10 @@
 // ===== CONFIG =====
 const SHEET_ID = "1BZBPQOmfCC47ocsTI-UztH4hj3_CFxyQatC79vw-BHE";
-const SHEET_NAME = "Compile"; // tab name
+const SHEET_NAME = "Compile";
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+
+// 🔒 FIXED list of phases — buttons always visible (1..4)
+const FIXED_PHASES = [1, 2, 3, 4];
 
 // FTE divisor rule based on shift
 function getShiftMinutes(shift) {
@@ -11,31 +14,63 @@ function getShiftMinutes(shift) {
   return 480; // A, B, C, G, a, b, c
 }
 
+/**
+ * Normalize any phase spelling to a single number.
+ * "Phase 01"  -> 1
+ * "Phase-01"  -> 1
+ * "Phase -01" -> 1
+ * "Phase-1"   -> 1
+ * "P-2"       -> 2
+ * "-" or ""   -> null
+ */
+function normalizePhase(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s || s === "-" || s === "—") return null;
+  const m = s.match(/\d+/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 let RAW = [];
-let FILTERS = { section: "All", shift: "All", phase: null };
+let FILTERS = { section: "All", shift: "All", phase: "All" };
 let chart1, chart2;
 
 // ===== LOAD =====
 async function loadData() {
-  const res = await fetch(CSV_URL + "&t=" + Date.now());
-  const text = await res.text();
-  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-  RAW = parsed.data.map(r => ({
-    sbu: r["SBU"]?.trim(),
-    section: r["Section"]?.trim(),
-    shift: r["Shift"]?.trim(),
-    employee: r["Employee Name"]?.trim(),
-    role: r["Role"]?.trim(),
-    enroll: r["Employee Enroll"]?.trim(),
-    workCentre: r["Work Centre"]?.trim(),
-    task: r["Task List"]?.trim(),
-    timePerTask: parseFloat(r["Time required /task"]) || 0,
-    frequency: parseFloat(r["Frequency"]) || 0,
-    actualTime: parseFloat(r["Actual Time/Shift"]) || 0,
-    remarks: r["Remarks"]?.trim(),
-    phase: r["Phase Remarks"]?.trim()
-  })).filter(r => r.employee && r.role);
-  render();
+  try {
+    const res = await fetch(CSV_URL + "&t=" + Date.now(), { cache: "no-store" });
+    const text = await res.text();
+    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+
+    RAW = parsed.data.map(r => {
+      const phaseNum = normalizePhase(r["Phase Remarks"]);
+      return {
+        sbu: r["SBU"]?.trim(),
+        section: r["Section"]?.trim(),
+        shift: r["Shift"]?.trim(),
+        employee: r["Employee Name"]?.trim(),
+        role: r["Role"]?.trim(),
+        enroll: r["Employee Enroll"]?.trim(),
+        workCentre: r["Work Centre"]?.trim(),
+        task: r["Task List"]?.trim(),
+        timePerTask: parseFloat(r["Time required /task"]) || 0,
+        frequency: parseFloat(r["Frequency"]) || 0,
+        actualTime: parseFloat(r["Actual Time/Shift"]) || 0,
+        remarks: r["Remarks"]?.trim(),
+        phaseRaw: r["Phase Remarks"]?.trim(),
+        phaseNum: phaseNum,                                    // 1, 2, 3, 4 or null
+        phase: phaseNum ? `Phase ${phaseNum}` : "Unassigned"   // pretty label
+      };
+    }).filter(r => r.employee && r.role);
+
+    render();
+  } catch (err) {
+    document.getElementById("meta").innerHTML =
+      `⚠️ Failed to load sheet — check publish settings. ${err.message}`;
+    console.error(err);
+  }
 }
 
 // ===== FILTERING =====
@@ -43,7 +78,7 @@ function applyFilters() {
   return RAW.filter(r => {
     if (FILTERS.section !== "All" && r.section !== FILTERS.section) return false;
     if (FILTERS.shift !== "All" && r.shift !== FILTERS.shift) return false;
-    if (FILTERS.phase && r.phase !== FILTERS.phase) return false;
+    if (FILTERS.phase !== "All" && r.phaseNum !== FILTERS.phase) return false;
     return true;
   });
 }
@@ -57,26 +92,33 @@ function render() {
   renderRoleTable(data);
   renderAlerts(data);
   renderEmployees(data);
+
+  const phasesPresent = [...new Set(RAW.map(r => r.phaseNum).filter(Boolean))].sort();
   document.getElementById("meta").innerHTML =
-    `✅ Last updated: ${new Date().toLocaleString()} · ${RAW.length} task rows · ${new Set(RAW.map(r=>r.enroll)).size} unique employees · ${new Set(RAW.map(r=>r.section)).size} sections`;
+    `✅ Last updated: ${new Date().toLocaleString()} · ${RAW.length} task rows · ` +
+    `${new Set(RAW.map(r => r.enroll)).size} unique employees · ` +
+    `${new Set(RAW.map(r => r.section)).size} sections · ` +
+    `Phases active: ${phasesPresent.length ? phasesPresent.map(p => "P" + p).join(", ") : "none"}`;
 }
 
 function renderFilters() {
   const sections = [...new Set(RAW.map(r => r.section).filter(Boolean))].sort();
   const shifts = [...new Set(RAW.map(r => r.shift).filter(Boolean))].sort();
-  const phases = [...new Set(RAW.map(r => r.phase).filter(Boolean))].sort();
 
+  // ---- SECTION & SHIFT chips (dynamic) ----
   const buildChips = (id, items, key) => {
     const el = document.getElementById(id);
     el.innerHTML = "";
+
     const all = document.createElement("button");
-    all.className = "chip" + (FILTERS[key] === "All" || (!FILTERS[key] && key === "phase") ? " active" : "");
+    all.className = "chip" + (FILTERS[key] === "All" ? " active" : "");
     all.textContent = `All (${RAW.length})`;
-    all.onclick = () => { FILTERS[key] = key === "phase" ? null : "All"; render(); };
+    all.onclick = () => { FILTERS[key] = "All"; render(); };
     el.appendChild(all);
+
     items.forEach(v => {
       const c = document.createElement("button");
-      const count = RAW.filter(r => r[key === "phase" ? "phase" : key] === v).length;
+      const count = RAW.filter(r => r[key] === v).length;
       c.className = "chip" + (FILTERS[key] === v ? " active" : "");
       c.textContent = `${v} (${count})`;
       c.onclick = () => { FILTERS[key] = v; render(); };
@@ -85,19 +127,48 @@ function renderFilters() {
   };
   buildChips("sectionFilters", sections, "section");
   buildChips("shiftFilters", shifts, "shift");
-  buildChips("phaseFilters", phases, "phase");
+
+  // ---- PHASE chips (FIXED 1..4, always visible) ----
+  const phaseEl = document.getElementById("phaseFilters");
+  phaseEl.innerHTML = "";
+
+  // total = rows that have a recognised phase number
+  const totalWithPhase = RAW.filter(r => r.phaseNum).length;
+
+  const allBtn = document.createElement("button");
+  allBtn.className = "chip" + (FILTERS.phase === "All" ? " active" : "");
+  allBtn.textContent = `All (${totalWithPhase})`;
+  allBtn.onclick = () => { FILTERS.phase = "All"; render(); };
+  phaseEl.appendChild(allBtn);
+
+  FIXED_PHASES.forEach(num => {
+    const count = RAW.filter(r => r.phaseNum === num).length;
+    const btn = document.createElement("button");
+    const isActive = FILTERS.phase === num;
+    const isEmpty = count === 0;
+
+    btn.className = "chip" + (isActive ? " active" : "") + (isEmpty ? " disabled" : "");
+    btn.textContent = `Phase ${num} (${count})`;
+    btn.disabled = isEmpty;
+    btn.title = isEmpty ? `No data for Phase ${num} yet — will activate when data is added` : "";
+    btn.onclick = () => {
+      if (isEmpty) return;
+      FILTERS.phase = num;
+      render();
+    };
+    phaseEl.appendChild(btn);
+  });
 }
 
 // ===== KPIs =====
 function renderKPIs(data) {
-  const empMap = {}; // key: enroll+shift -> total minutes
+  const empMap = {};
   data.forEach(r => {
     const k = r.enroll + "|" + r.shift;
     if (!empMap[k]) empMap[k] = { mins: 0, shift: r.shift, section: r.section, role: r.role, name: r.employee, phase: r.phase };
     empMap[k].mins += r.actualTime || (r.timePerTask * r.frequency);
   });
 
-  // Role-level aggregation
   const roleMap = {};
   Object.values(empMap).forEach(e => {
     const k = e.role + "|" + e.section;
@@ -119,7 +190,8 @@ function renderKPIs(data) {
   const totalEmployees = new Set(data.map(r => r.enroll)).size;
   const uniqueRoles = new Set(data.map(r => r.role)).size;
   const requiredFTE = Object.values(roleMap).reduce((a, b) => a + b.totalFTE, 0);
-  const avgLoad = Object.values(roleMap).reduce((a, b) => a + (b.totalFTE / b.hc) * 100, 0) / (Object.values(roleMap).length || 1);
+  const avgLoad = Object.values(roleMap).reduce((a, b) => a + (b.totalFTE / b.hc) * 100, 0) /
+                  (Object.values(roleMap).length || 1);
 
   const kpis = [
     { k: "Total Employees", v: totalEmployees, sub: "Unique Employee Enroll", badge: null },
@@ -131,7 +203,9 @@ function renderKPIs(data) {
 
   Object.keys(sectionLoads).sort().forEach(sec => {
     const avg = sectionLoads[sec].reduce((a, b) => a + b, 0) / sectionLoads[sec].length;
-    let badge = avg > 110 ? { t: "Overloaded", c: "over" } : avg < 70 ? { t: "Underutilised", c: "under" } : { t: "Optimal", c: "optimal" };
+    let badge = avg > 110 ? { t: "Overloaded", c: "over" }
+              : avg < 70  ? { t: "Underutilised", c: "under" }
+              : { t: "Optimal", c: "optimal" };
     kpis.push({ k: `${sec} avg load`, v: avg.toFixed(1) + "%", sub: `${sec} section`, badge });
   });
 
@@ -207,7 +281,7 @@ function renderRoleTable(data) {
   const rows = Object.values(roleMap).map(r => ({ ...r, load: (r.fte / r.hc) * 100 }))
     .sort((a, b) => b.fte - a.fte);
 
-  const q = document.getElementById("roleSearch").value.toLowerCase();
+  const q = (document.getElementById("roleSearch").value || "").toLowerCase();
   const filtered = rows.filter(r => !q || (r.role + r.section + r.phase).toLowerCase().includes(q));
 
   document.getElementById("roleTable").innerHTML = `
@@ -272,7 +346,7 @@ function renderEmployees(data) {
     load: (e.mins / getShiftMinutes(e.shift)) * 100
   })).sort((a, b) => b.load - a.load);
 
-  const q = document.getElementById("empSearch").value.toLowerCase();
+  const q = (document.getElementById("empSearch").value || "").toLowerCase();
   const filtered = rows.filter(r => !q || (r.employee + r.role + r.section + r.phase).toLowerCase().includes(q));
 
   document.getElementById("empMeta").textContent =
@@ -301,4 +375,4 @@ document.addEventListener("input", e => { if (e.target.id === "empSearch") rende
 // ===== EVENTS =====
 document.getElementById("refreshBtn").onclick = loadData;
 loadData();
-setInterval(loadData, 5 * 60 * 1000); // auto-refresh every 5 min
+setInterval(loadData, 60 * 1000); // 🔄 auto-refresh every 60 seconds for true "live" feel
